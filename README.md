@@ -120,6 +120,78 @@ No work in this repository is affiliated with my employer, [Wahoo Fitness](http:
 
 I have no idea what I am doing here. All code was written by ChatGPT and I haven't written a single line of JavaScript or TypeScript on my own. Suggestions to improve this code are very much appreciated.
 
+## 🛠️ Development Setup
+
+### Prerequisites
+
+- **Node.js** v20+ ([download](https://nodejs.org/))
+- **npm** v10+ (comes with Node.js)
+- **Visual Studio Code** v1.96.0+
+- **Make** (optional, recommended for Windows)
+
+### Quick Start
+
+#### Option 1: Using Make (Recommended)
+
+```bash
+# Clone repository
+git clone https://github.com/your-username/fit-viewer.git
+cd fit-viewer
+
+# Complete setup (install + compile)
+make dev
+
+# Watch mode for development
+make watch
+
+# Create package for distribution
+make package
+```
+
+#### Option 2: Using npm directly
+
+```bash
+# Install dependencies
+npm install
+
+# Compile TypeScript
+npm run compile
+
+# Watch mode
+npm run watch
+
+# Create package
+npm run package
+```
+
+### Available Make Commands
+
+```bash
+make help          # Show all available commands
+make install       # Install dependencies
+make compile       # Compile TypeScript
+make watch         # Auto-compile on changes
+make dev           # Full dev setup
+make package       # Create .vsix package
+make clean         # Remove dependencies and output
+make reinstall     # Clean and reinstall
+```
+
+### Testing the Extension
+
+1. Press `F5` in VS Code (or Run > Start Debugging)
+2. Extension Development Host opens
+3. Open a `.fit` file
+4. Test viewer and recovery mode features
+
+### Project Structure
+
+See [REQUIREMENTS.md](REQUIREMENTS.md) for:
+- Detailed dependency information
+- Development workflow
+- Troubleshooting guide
+- CI/CD integration
+
 ## Credit
 
 Uses:
