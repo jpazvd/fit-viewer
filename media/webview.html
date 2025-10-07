@@ -150,17 +150,87 @@
             text-align: center;
             color: #555;
         }
+
+        /* Edit mode styling */
+        .edit-controls {
+            margin-bottom: 15px;
+            padding: 10px;
+            background: #f0f0f0;
+            border-radius: 4px;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .edit-btn {
+            padding: 8px 16px;
+            background: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: background 0.3s;
+        }
+
+        .edit-btn:hover {
+            background: #45a049;
+        }
+
+        .edit-btn.save {
+            background: #2196F3;
+        }
+
+        .edit-btn.save:hover {
+            background: #1976D2;
+        }
+
+        .edit-btn.export {
+            background: #FF9800;
+        }
+
+        .edit-btn.export:hover {
+            background: #F57C00;
+        }
+
+        .edit-btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+
+        .dirty-indicator {
+            color: #FF5722;
+            font-weight: 600;
+        }
+
+        table.editable td[contenteditable="true"] {
+            cursor: text;
+            background-color: #fffde7;
+        }
+
+        table.editable td[contenteditable="true"]:focus {
+            outline: 2px solid #2196F3;
+            outline-offset: -2px;
+        }
+
+        table.editable td[contenteditable="true"]:hover {
+            background-color: #fff9c4;
+        }
     </style>
 
     <script>
         let globalData = null; // will hold all data received from the extension
+        let editMode = false;
+        let isEditable = false;
+        let isDirty = false;
+        let recoveryMode = false;
 
         window.onload = () => {
             // Signal to the extension that the webview is ready
             const vscode = acquireVsCodeApi();
             vscode.postMessage({ type: "ready" });
 
-            // Default: show the Data tab
+            // Default: show the Map tab
             document.getElementById("content-data").style.display = "none";
             document.getElementById("content-chart").style.display = "none";
             document.getElementById("content-map").style.display = "block";
@@ -201,8 +271,13 @@
                 const message = event.data;
                 if (message.type === "fitData") {
                     globalData = message.data;
+                    isEditable = message.editable || false;
+                    isDirty = message.isDirty || false;
+                    recoveryMode = message.recoveryMode || false;
                     setTimeout(() => {
                         displayTables(globalData);
+                        updateEditControls();
+                        updateRecoveryModeUI();
                         if (document.getElementById("tab-chart").classList.contains("active")) {
                             renderChart();
                         }
@@ -210,14 +285,197 @@
                             renderMap();
                         }
                     }, 0);
+                } else if (message.type === "update") {
+                    globalData = message.data;
+                    isDirty = message.isDirty || false;
+                    displayTables(globalData);
+                    updateEditControls();
+                } else if (message.type === "saved") {
+                    isDirty = false;
+                    updateEditControls();
+                    alert("✅ File saved successfully!");
+                } else if (message.type === "recoveryModeChanged") {
+                    recoveryMode = message.enabled;
+                    updateRecoveryModeUI();
+                } else if (message.type === "physiologyCheckResults") {
+                    displayPhysiologyResults(message.results);
                 }
             });
 
+
+            function updateEditControls() {
+                const indicator = document.getElementById("dirty-indicator");
+                const saveBtn = document.getElementById("save-btn");
+                
+                if (indicator) {
+                    indicator.textContent = isDirty ? "● Unsaved changes" : "";
+                }
+                
+                if (saveBtn) {
+                    saveBtn.disabled = !isDirty;
+                }
+            }
+
+            function toggleEditMode() {
+                editMode = !editMode;
+                const btn = document.getElementById("edit-btn");
+                if (btn) {
+                    btn.textContent = editMode ? "🔒 Disable Editing" : "✏️ Enable Editing";
+                }
+
+                // Toggle contentEditable on table cells
+                document.querySelectorAll("table.data-table td").forEach(cell => {
+                    const cellIndex = cell.cellIndex;
+                    const headerRow = cell.closest("table").querySelector("thead tr");
+                    if (headerRow) {
+                        const columnName = headerRow.cells[cellIndex]?.textContent;
+                        // Only allow editing of safe fields
+                        const safeFields = ['heartRate', 'cadence', 'power', 'temperature', 'altitude', 'enhancedAltitude', 'enhancedSpeed'];
+                        const isSafeField = safeFields.some(field => columnName?.includes(field));
+                        
+                        if (editMode && isSafeField) {
+                            cell.contentEditable = "true";
+                            cell.classList.add("editable");
+                        } else {
+                            cell.contentEditable = "false";
+                            cell.classList.remove("editable");
+                        }
+                    }
+                });
+            }
+
+            function handleCellEdit(event) {
+                if (!editMode) return;
+                
+                const cell = event.target;
+                const newValue = cell.textContent.trim();
+                const row = cell.parentElement.rowIndex - 1; // Subtract header row
+                const headerRow = cell.closest("table").querySelector("thead tr");
+                const field = headerRow?.cells[cell.cellIndex]?.textContent;
+                const tableElement = cell.closest("table");
+                const tableId = tableElement.id;
+                
+                // Determine which message type this is from
+                const tableName = tableElement.getAttribute("data-table-name");
+                
+                if (tableName && field && row >= 0) {
+                    const vscode = acquireVsCodeApi();
+                    vscode.postMessage({
+                        type: 'edit',
+                        edit: {
+                            table: tableName,
+                            row: row,
+                            field: field,
+                            newValue: parseValue(newValue)
+                        }
+                    });
+                    
+                    isDirty = true;
+                    updateEditControls();
+                }
+            }
+
+            function parseValue(value) {
+                // Try to parse as number
+                const num = Number(value);
+                if (!isNaN(num) && value !== '') {
+                    return num;
+                }
+                // Return as string
+                return value;
+            }
+
+            function saveFile() {
+                const vscode = acquireVsCodeApi();
+                vscode.postMessage({ type: 'save' });
+            }
+
+            function exportToJson() {
+                const vscode = acquireVsCodeApi();
+                vscode.postMessage({ type: 'export' });
+            }
+
+            function toggleRecoveryMode() {
+                const vscode = acquireVsCodeApi();
+                vscode.postMessage({ type: 'toggleRecoveryMode' });
+            }
+
+            function checkPhysiology() {
+                const vscode = acquireVsCodeApi();
+                vscode.postMessage({ type: 'checkPhysiology' });
+            }
+
+            function updateRecoveryModeUI() {
+                const indicator = document.getElementById("recovery-indicator");
+                const recoveryBtn = document.getElementById("recovery-btn");
+                
+                if (indicator) {
+                    if (recoveryMode) {
+                        indicator.textContent = "⚠️ RECOVERY MODE ACTIVE - Critical fields editable";
+                        indicator.style.display = "inline";
+                    } else {
+                        indicator.style.display = "none";
+                    }
+                }
+                
+                if (recoveryBtn) {
+                    if (recoveryMode) {
+                        recoveryBtn.style.background = "#FF5722";
+                        recoveryBtn.textContent = "🔧 Recovery Mode: ON";
+                    } else {
+                        recoveryBtn.style.background = "#9E9E9E";
+                        recoveryBtn.textContent = "🔧 Recovery Mode: OFF";
+                    }
+                }
+            }
+
+            function displayPhysiologyResults(results) {
+                const { valid, warnings, suggestions } = results;
+                
+                let message = valid ? 
+                    "✅ All physiology fields present!\n\n" : 
+                    "⚠️ Physiology Check Results:\n\n";
+                
+                if (warnings.length > 0) {
+                    message += "WARNINGS:\n";
+                    warnings.forEach(w => message += `  • ${w}\n`);
+                    message += "\n";
+                }
+                
+                if (suggestions.length > 0) {
+                    message += "SUGGESTIONS:\n";
+                    suggestions.forEach(s => message += `  • ${s}\n`);
+                }
+                
+                alert(message);
+            }
 
             function displayTables(dataFrames) {
                 const aq = window.aq;
                 const container = document.getElementById("content-data");
                 container.innerHTML = ""; // Clear previous content
+
+                // Add edit controls if editable
+                if (isEditable) {
+                    const controls = document.createElement("div");
+                    controls.classList.add("edit-controls");
+                    controls.innerHTML = `
+                        <button id="edit-btn" class="edit-btn" onclick="toggleEditMode()">✏️ Enable Editing</button>
+                        <button id="save-btn" class="edit-btn save" onclick="saveFile()" disabled>💾 Save</button>
+                        <button class="edit-btn export" onclick="exportToJson()">📤 Export JSON</button>
+                        <button id="recovery-btn" class="edit-btn" onclick="toggleRecoveryMode()" 
+                            title="Recovery Mode: Edit critical fields (FILE_ID, SESSION, ACTIVITY, DEVICE_INFO) for corrupted/incomplete files">
+                            🔧 Recovery Mode
+                        </button>
+                        <button class="edit-btn" onclick="checkPhysiology()" 
+                            title="Check if file has required fields for Garmin physiology engine">
+                            🏃 Check Physiology
+                        </button>
+                        <span id="dirty-indicator" class="dirty-indicator"></span>
+                        <span id="recovery-indicator" class="recovery-indicator" style="display:none; color: #FF5722; font-weight: 600;"></span>
+                    `;
+                    container.appendChild(controls);
+                }
 
                 // Ensure recordMesgs appears first
                 const keys = Object.keys(dataFrames);
@@ -278,7 +536,14 @@
                 const tableElement = document.createElement("table");
                 tableElement.id = tableId;
                 tableElement.classList.add("display");
+                tableElement.classList.add("data-table");
+                tableElement.setAttribute("data-table-name", title); // Store table name for editing
                 tableElement.innerHTML = table.toHTML({ limit: Infinity });
+
+                // Add edit handlers to table cells
+                if (isEditable) {
+                    tableElement.addEventListener('blur', handleCellEdit, true);
+                }
 
                 content.appendChild(tableElement);
                 section.appendChild(header);
